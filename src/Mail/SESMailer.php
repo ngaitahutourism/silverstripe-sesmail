@@ -73,16 +73,15 @@ class SESMailer implements Mailer
 	 */
 	public function send($email)
 	{
-        $config = Config::inst()->get('Symbiote\SilverStripeSESMailer\Mail\Config');
-        $credentials = $config['credentials'];
+        $config = Injector::inst()->get('SilverStripe\Control\Email\Mailer');
         $from = array_keys($email->getFrom())[0];
         $to = array_keys($email->getTo())[0];
 
         $mail = new PHPMailer(true);
         $mail->isSMTP();
-        $mail->Username   = $credentials['key'];
-        $mail->Password   = $credentials['secret'];
-        $mail->Host       = 'email-smtp.' . $config['region'] . '.amazonaws.com';
+        $mail->Username   = $config->key;
+        $mail->Password   = $config->secret;
+        $mail->Host       = 'email-smtp.' . $config->region . '.amazonaws.com';
         $mail->Port       = 587;
         $mail->SMTPAuth   = true;
         $mail->SMTPSecure = 'tls';
