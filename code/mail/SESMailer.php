@@ -25,16 +25,26 @@ class SESMailer extends \Mailer {
      * @var boolean
      */
     public $useQueuedJobs = true;
-    
+
     /**
-     * Define an 'always from' address that will override the 'From' 
-     * address for outbound emails, leaving the replyto as is. 
+     * Define an 'always from' address that will override the 'From'
+     * address for outbound emails, leaving the replyto as is.
      *
      * @var string
      */
     public $alwaysFrom;
-	
+
 	public function __construct($config) {
+        if (!empty($config) && !isset($config['credentials'])) {
+            // try to load the credentials from the Silverstripe configuration file
+            if (!defined('SS_AWS_KEY') || !defined('SS_AWS_SECRET')) {
+                throw new Exception("Undefined SS_AWS_KEY or SS_AWS_SECRET, unable to construct the AWS mailer");
+            }
+            $config['credentials'] = [
+                'key' => SS_AWS_KEY,
+                'secret' => SS_AWS_SECRET
+            ];
+        }
 		$this->client = SesClient::factory($config);
 		parent::__construct();
 	}
@@ -104,7 +114,7 @@ class SESMailer extends \Mailer {
 		if(!isset($headers['To'])) $headers['To'] = implode (',', $destinations);
 		if(isset($headers['Cc']))  $destinations = array_merge($destinations, explode(',', $headers['Cc']));
 		if(isset($headers['Bcc'])) $destinations = array_merge($destinations, explode(',', $headers['Bcc']));
-        
+
         // if a custom 'reply-to' address has been set via headers
         if(isset($headers['Reply-To'])) {
             $message->setReplyTo($headers['Reply-To']);
@@ -121,7 +131,7 @@ class SESMailer extends \Mailer {
 		}
 
 		$rawMessageText = $this->getMessageText($message);
-		
+
 		if (class_exists('QueuedJobService') && $this->useQueuedJobs) {
 			singleton('QueuedJobService')->queueJob(Injector::inst()->createWithArgs('SESQueuedMail', array(
 				$destinations,
@@ -143,7 +153,7 @@ class SESMailer extends \Mailer {
 		unset($rawMessageText);
 
         /* @var $response Aws\Result */
-        if (isset($response['MessageId']) && strlen($response['MessageId']) && 
+        if (isset($response['MessageId']) && strlen($response['MessageId']) &&
 			(isset($response['@metadata']['statusCode']) && $response['@metadata']['statusCode'] == 200)) {
             return true;
         }
@@ -171,10 +181,10 @@ class SESMailer extends \Mailer {
 			 * and decoded we're catching it here and trying to send again, the exception doesn't have an error code or
 			 * similar to check on so we have to relie on magic strings in the error message. The error we're catching
 			 * here is normally:
-			 * 
+			 *
 			 * AWS HTTP error: cURL error 56: SSL read: error:00000000:lib(0):func(0):reason(0), errno 104
 			 * (see http://curl.haxx.se/libcurl/c/libcurl-errors.html) (server): 100 Continue
-			 * 
+			 *
 			 * Without the line break, so we check for the 'cURL error 56' as it seems likely to be consistent across
 			 * systems/sites
 			 */
