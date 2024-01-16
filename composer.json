@@ -12,7 +12,7 @@
   {
     "silverstripe/framework": "^4",
     "aws/aws-sdk-php": "~3.0",
-    "zendframework/zend-mail": "~2.2"
+    "laminas/laminas-mail": "^2.2"
   },
   "extra": {
     "branch-alias": {
