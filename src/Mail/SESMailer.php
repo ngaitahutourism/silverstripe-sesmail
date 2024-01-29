@@ -8,7 +8,8 @@ use SilverStripe\Control\Email\Email;
 use SilverStripe\Core\Injector\Injector;
 use Exception;
 use Psr\Log\LoggerInterface;
-
+use SilverStripe\Core\Config\Config;
+use PHPMailer\PHPMailer\PHPMailer;
 
 /**
  * A mailer implementation which uses Amazon's Simple Email Service.
@@ -41,9 +42,10 @@ class SESMailer implements Mailer
 	/**
 	 * @param array $config
 	 */
-	public function __construct($config)
+	public function __construct()
 	{
-		$this->client = SesClient::factory($config);
+		$config = Config::inst()->get('Symbiote\SilverStripeSESMailer\Mail\Config');
+        $this->client = SesClient::factory($config);
 	}
 
 	/**
@@ -71,62 +73,26 @@ class SESMailer implements Mailer
 	 */
 	public function send($email)
 	{
-		$destinations = $email->getTo();
+        $config = Injector::inst()->get('SilverStripe\Control\Email\Mailer');
+        $from = array_keys($email->getFrom())[0];
+        $to = array_keys($email->getTo())[0];
 
-		if ($overideTo = Email::getSendAllEmailsTo()) {
-			$destinations = $overideTo;
-		} else {
-			if ($cc = $email->getCc()) {
-				$destinations = array_merge($destinations, $cc);
-			}
+        $mail = new PHPMailer(true);
+        $mail->isSMTP();
+        $mail->Username   = $config->key;
+        $mail->Password   = $config->secret;
+        $mail->Host       = 'email-smtp.' . $config->region . '.amazonaws.com';
+        $mail->Port       = 587;
+        $mail->SMTPAuth   = true;
+        $mail->SMTPSecure = 'tls';
+        $mail->addAddress($to);
+        $mail->setFrom($from);
+        $mail->isHTML(true);
+        $mail->Subject    = $email->getSubject();
+        $mail->Body       = $email->body;
+        $mail->Send();
 
-			if ($bcc = $email->getBcc()) {
-				$destinations = array_merge($destinations, $bcc);
-			}
-
-			if ($addCc = Email::getCCAllEmailsTo()) {
-				$destinations = array_merge($destinations, $addCc);
-			}
-
-			if ($addBCc = Email::getBCCAllEmailsTo()) {
-				$destinations = array_merge($destinations, $addBCc);
-			}
-		}
-
-		$destinations = array_keys($destinations);
-		$subject = $email->getSubject();
-		$rawMessageText = $email->render()->getSwiftMessage()->toString();
-
-		if (class_exists(QueuedJobService::class) && $this->useQueuedJobs) {
-			$job = Injector::inst()->createWithArgs(SESQueuedMail::class, array(
-				$destinations,
-				$subject,
-				$rawMessageText
-			));
-
-			singleton(QueuedJobService::class)->queueJob($job);
-
-			return true;
-		}
-
-		try {
-			$response = $this->sendSESClient($destinations, $rawMessageText);
-
-			$this->lastResponse = $response;
-		} catch (\Aws\Ses\Exception\SesException $ex) {
-			Injector::inst()->get(LoggerInterface::class)->warning($ex->getMessage());
-
-			$this->lastResponse = false;
-			return false;
-		}
-
-        /* @var $response Aws\Result */
-        if (isset($response['MessageId']) && strlen($response['MessageId']) &&
-			(isset($response['@metadata']['statusCode']) && $response['@metadata']['statusCode'] == 200)) {
-            return true;
-        }
-
-		return false;
+		return true;
 	}
 
 	/**
