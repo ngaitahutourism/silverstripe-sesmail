@@ -10,7 +10,7 @@
   }],
   "require":
   {
-    "silverstripe/framework": "^4",
+    "silverstripe/framework": "^5",
     "aws/aws-sdk-php": "~3.0"
   },
   "extra": {
