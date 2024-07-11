@@ -3,25 +3,26 @@
 namespace Symbiote\SilverStripeSESMailer\Mail;
 
 use Aws\Ses\SesClient;
-use SilverStripe\Control\Email\Emailer;
-use SilverStripe\Control\Email\Email;
 use SilverStripe\Core\Injector\Injector;
+use SilverStripe\Core\Config\Config;
+use Symfony\Component\Mailer\Transport;
+use Symfony\Component\Mailer\Mailer as SymfonyMailer;
+use Symfony\Component\Mime\Email as SymfonyEmail;
+use Symfony\Component\Mime\Address;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 use Exception;
 use Psr\Log\LoggerInterface;
-use SilverStripe\Core\Config\Config;
-use PHPMailer\PHPMailer\PHPMailer;
 
 /**
  * A mailer implementation which uses Amazon's Simple Email Service.
  *
- * This mailer uses the SendRawEmail endpoint, so it supports sending attachments. Note that this only sends emails
- * to up to 50 recipients at a time, and Amazon's standard SES usage limits apply.
+ * This mailer uses the SendRawEmail endpoint, so it supports sending attachments. Note that this only sends sending
+ * emails to up to 50 recipients at a time, and Amazon's standard SES usage limits apply.
  *
  * Does not support inline images.
  */
-class SESMailer implements Emailer
+class SESMailer
 {
-
     /**
      * @var SesClient
      */
@@ -56,6 +57,7 @@ class SESMailer implements Emailer
     public function setUseQueuedJobs($bool)
     {
         $this->useQueuedJobs = $bool;
+
         return $this;
     }
 
@@ -68,29 +70,32 @@ class SESMailer implements Emailer
     }
 
     /**
-     * @param Email $email
-     * @return bool
+     * @param SymfonyEmail $email
      */
-    public function send($email)
+    public function send(SymfonyEmail $email)
     {
-        $config = Injector::inst()->get('Symbiote\SilverStripeSESMailer\Mail\Config');
-        $from = array_keys($email->getFrom())[0];
-        $to = array_keys($email->getTo())[0];
+        $config = Config::inst()->get('Symbiote\SilverStripeSESMailer\Mail\Config');
+        $from = $email->getFrom()[0]->getAddress();
+        $to = $email->getTo()[0]->getAddress();
 
-        $mail = new PHPMailer(true);
-        $mail->isSMTP();
-        $mail->Username   = $config->key;
-        $mail->Password   = $config->secret;
-        $mail->Host       = 'email-smtp.' . $config->region . '.amazonaws.com';
-        $mail->Port       = 587;
-        $mail->SMTPAuth   = true;
-        $mail->SMTPSecure = 'tls';
-        $mail->addAddress($to);
-        $mail->setFrom($from);
-        $mail->isHTML(true);
-        $mail->Subject    = $email->getSubject();
-        $mail->Body       = $email->body;
-        $mail->send();
+        // Create Symfony Email instance
+        $symfonyEmail = new SymfonyEmail();
+        $symfonyEmail->from(new Address($from));
+        $symfonyEmail->to(new Address($to));
+        $symfonyEmail->subject($email->getSubject());
+        $symfonyEmail->html($email->getHtmlBody());
+
+        // Create Symfony Mailer instance
+        $dsn = sprintf('smtp://%s:%s@email-smtp.%s.amazonaws.com:587', $config['key'], $config['secret'], $config['region']);
+        $transport = Transport::fromDsn($dsn);
+        $mailer = new SymfonyMailer($transport);
+
+        try {
+            $mailer->send($symfonyEmail);
+        } catch (TransportExceptionInterface $e) {
+            Injector::inst()->get(LoggerInterface::class)->error($e->getMessage());
+            throw new Exception('Failed to send email: ' . $e->getMessage(), 0, $e);
+        }
 
         return true;
     }
@@ -110,7 +115,7 @@ class SESMailer implements Emailer
                 'RawMessage' => ['Data' => $rawMessageText]
             ]);
         } catch (Exception $ex) {
-            if (strpos($ex->getMessage(), "cURL error 56") !== false) {
+            if (strpos($ex->getMessage(), "cURL error 56")) {
                 $response = $this->client->sendRawEmail([
                     'Destinations' => $destinations,
                     'RawMessage' => ['Data' => $rawMessageText]
